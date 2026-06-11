@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Mackinac Island — Live Tour Guide</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<style>
+  :root{
+    --bg:#0e3a53; --panel:#ffffff; --ink:#10303f; --muted:#5c7686;
+    --accent:#1d7a8c; --accent2:#e08a3c; --line:#dfe8ec; --good:#2e9e6b;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:#eef3f5}
+  #app{display:flex;flex-direction:column;height:100dvh;max-width:760px;margin:0 auto;background:#eef3f5}
+  header{background:var(--bg);color:#fff;padding:12px 16px}
+  header h1{font-size:17px;margin:0;font-weight:700;letter-spacing:.2px}
+  header .sub{font-size:11px;opacity:.8;margin-top:2px}
+  #status{font-size:11.5px;padding:7px 16px;background:#fff7ec;color:#7a4e16;border-bottom:1px solid var(--line)}
+  #status.ok{background:#eafaf1;color:#1d6e48}
+  #status.err{background:#fdecec;color:#9b2c2c}
+  #toolbar{display:flex;gap:6px;padding:8px 12px;background:#eef3f5;border-bottom:1px solid var(--line)}
+  #toolbar button{flex:1;font-size:12px;font-weight:600;padding:8px 4px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--accent);cursor:pointer}
+  #toolbar button.armed{background:var(--accent2);color:#fff;border-color:var(--accent2)}
+  #toolbar button.loopon{background:var(--accent2);color:#fff;border-color:var(--accent2)}
+  #map{flex:0 0 44%;width:100%;z-index:1}
+  .tabs{display:flex;gap:6px;padding:10px 12px 4px;background:#eef3f5}
+  .tab{flex:1;text-align:center;font-size:13px;font-weight:600;padding:8px 6px;border-radius:10px;background:#dde7ec;color:var(--muted);border:none;cursor:pointer}
+  .tab.active{background:var(--accent);color:#fff}
+  #list{flex:1;overflow-y:auto;padding:6px 12px 24px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin:8px 0;box-shadow:0 1px 3px rgba(16,48,63,.05)}
+  .card.active{border-color:var(--accent2);box-shadow:0 0 0 2px rgba(224,138,60,.25)}
+  .card .top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+  .card h3{margin:0;font-size:15.5px;display:flex;align-items:center;gap:8px}
+  .dot{width:11px;height:11px;border-radius:50%;flex:none}
+  .card .dist{font-size:12px;font-weight:700;color:var(--accent);white-space:nowrap;text-align:right}
+  .card .dist small{display:block;font-weight:500;color:var(--muted);font-size:10.5px}
+  .card p{margin:8px 0 10px;font-size:13px;line-height:1.5;color:#33505f}
+  .card .meta{font-size:11px;color:var(--muted);margin-bottom:2px;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+  .btns{display:flex;gap:8px;flex-wrap:wrap}
+  .btn{flex:1;min-width:90px;text-align:center;text-decoration:none;font-size:13px;font-weight:600;padding:9px;border-radius:10px;border:1px solid var(--line);color:var(--accent);background:#f4f9fa;cursor:pointer}
+  .btn.go{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .btn.start{background:var(--accent2);color:#fff;border-color:var(--accent2)}
+  #locBtn{position:fixed;right:16px;bottom:18px;z-index:500;background:#fff;border:1px solid var(--line);border-radius:50%;width:46px;height:46px;font-size:20px;box-shadow:0 2px 8px rgba(0,0,0,.18);cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .leaflet-popup-content{font-size:13px}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>🏝️ Mackinac Island — Live Tour Guide</h1>
+    <div class="sub">Your location · stops · bike loop · walking routes</div>
+  </header>
+  <div id="status">Tap “📍 Enable location” below. If Safari won’t allow it (common when opening a saved file), tap “✋ Set my spot” and tap the map where you are.</div>
+  <div id="toolbar">
+    <button id="enableLoc">📍 Enable location</button>
+    <button id="manualLoc">✋ Set my spot</button>
+    <button id="loopToggle">🚲 Bike loop</button>
+  </div>
+  <div id="map"></div>
+  <div class="tabs">
+    <button class="tab active" data-day="all">All Stops</button>
+    <button class="tab" data-day="1">Day 1</button>
+    <button class="tab" data-day="2">Day 2</button>
+  </div>
+  <div id="list"></div>
+</div>
+<button id="locBtn" title="Recenter on me">🎯</button>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+// ---- Points of interest (approximate coordinates) ----
+const POIS = [
+  { id:'dock', name:'Ferry Docks (Downtown)', cat:'Arrive', color:'#1d7a8c', day:[1,2],
+    lat:45.84970, lng:-84.61780,
+    desc:'Where your ferry lands. Main Street starts right here — bike rentals, fudge, and lunch within a block. Each day, check the LAST return ferry time as soon as you arrive.' },
+  { id:'bikerent', name:'Bike Rentals → Loop Start', cat:'Day 1 · Start', color:'#e08a3c', day:[1], loop:true,
+    lat:45.84990, lng:-84.61850,
+    desc:'Rent here first thing, then ride the 8.2-mile shoreline loop (M-185) counter-clockwise — flat and car-free. Tap “Start loop” to draw the full path on the map.' },
+  { id:'arch', name:'Arch Rock', cat:'Day 1 · Bike Loop', color:'#e08a3c', day:[1],
+    lat:45.85560, lng:-84.60280,
+    desc:'Natural limestone arch ~150 ft above the lake — the island’s most photographed spot. About 1.5 mi into the loop on the east shore; stairs lead up from the road.' },
+  { id:'british', name:'British Landing', cat:'Day 1 · Bike Loop', color:'#e08a3c', day:[1],
+    lat:45.86280, lng:-84.64420,
+    desc:'Roughly the halfway point on the northwest shore. Restrooms, a snack stand, and a good rest stop before finishing the ride back to town.' },
+  { id:'fort', name:'Fort Mackinac', cat:'Day 1 · Afternoon', color:'#e08a3c', day:[1],
+    lat:45.85170, lng:-84.61520,
+    desc:'Hilltop fort with 14 restored buildings, cannon & rifle demos, and the best harbor views. Short uphill walk from downtown. Budget 1.5–2 hours.' },
+  { id:'fudge', name:'Fudge Shops (Main St)', cat:'Day 1 · Treat', color:'#e08a3c', day:[1],
+    lat:45.84995, lng:-84.61700,
+    desc:'The Mackinac classic — watch fudge made on marble slabs and grab some to take home. Clustered along Main Street near the docks.' },
+  { id:'grand', name:'Grand Hotel', cat:'Day 1/2 · Optional', color:'#7a5bd0', day:[1,2],
+    lat:45.84780, lng:-84.62580,
+    desc:'World’s longest porch (660 ft). $12 to visit if not dining. Optional on Day 1 — slots neatly into the slower Day 2 if you’re tired.' },
+  { id:'carriage', name:'Carriage Tour (Main St)', cat:'Day 2 · Start', color:'#2e9e6b', day:[2],
+    lat:45.85010, lng:-84.61790,
+    desc:'Board a horse-drawn carriage tour downtown — an easy, no-pedaling way to see the interior and history. Relaxed start to Day 2.' },
+  { id:'marquette', name:'Marquette Park & Waterfront', cat:'Day 2 · Stroll', color:'#2e9e6b', day:[2],
+    lat:45.85080, lng:-84.61650,
+    desc:'Green park below the fort, lilacs in June, and an easy waterfront stroll. Good for slow wandering, shops, and people-watching before the ferry back.' },
+];
+
+// ---- 8.2-mile M-185 shoreline loop (approximate perimeter path) ----
+const LOOP = [
+  [45.84985,-84.61840],[45.85120,-84.61300],[45.85230,-84.60850],[45.85420,-84.60450],
+  [45.85620,-84.60230],[45.85950,-84.60350],[45.86250,-84.60900],[45.86480,-84.61550],
+  [45.86600,-84.62400],[45.86560,-84.63300],[45.86380,-84.64100],[45.86120,-84.64650],
+  [45.85700,-84.64950],[45.85250,-84.64850],[45.84880,-84.64500],[45.84640,-84.63900],
+  [45.84520,-84.63200],[45.84500,-84.62550],[45.84580,-84.62050],[45.84780,-84.61880],
+  [45.84985,-84.61840]
+];
+
+// ---- Map ----
+const map = L.map('map',{zoomControl:true}).setView([45.8555,-84.6250],14);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+
+const markers={};
+POIS.forEach(p=>{
+  const icon=L.divIcon({className:'',html:
+    `<div style="background:${p.color};width:18px;height:18px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`,
+    iconSize:[18,18],iconAnchor:[9,18],popupAnchor:[0,-16]});
+  markers[p.id]=L.marker([p.lat,p.lng],{icon}).addTo(map)
+    .bindPopup(`<b>${p.name}</b><br><span style="color:#5c7686">${p.cat}</span><br>${p.desc}`);
+});
+
+// ---- Bike loop layer ----
+let loopLayer=null, loopOn=false;
+function showLoop(on){
+  if(on && !loopLayer){
+    loopLayer=L.polyline(LOOP,{color:'#e08a3c',weight:5,opacity:.85,dashArray:'1,0'}).addTo(map);
+    L.polyline(LOOP,{color:'#fff',weight:9,opacity:.35}).addTo(map).bringToBack();
+  }
+  if(loopLayer){ loopLayer.setStyle({opacity:on?.85:0}); }
+  loopOn=on;
+  document.getElementById('loopToggle').classList.toggle('loopon',on);
+  if(on){ map.fitBounds(L.polyline(LOOP).getBounds().pad(0.1)); }
+}
+document.getElementById('loopToggle').addEventListener('click',()=>showLoop(!loopOn));
+
+// ---- Route line (user -> selected stop) ----
+let routeLine=null, activeId=null;
+function clearRoute(){ if(routeLine){ map.removeLayer(routeLine); routeLine=null; } activeId=null; renderList(); }
+function startTo(p){
+  activeId=p.id;
+  if(p.loop){ showLoop(true); map.fitBounds(L.polyline(LOOP).getBounds().pad(0.1)); markers[p.id].openPopup(); renderList(); return; }
+  if(routeLine){ map.removeLayer(routeLine); routeLine=null; }
+  if(userPos){
+    routeLine=L.polyline([[userPos.lat,userPos.lng],[p.lat,p.lng]],{color:'#1d7a8c',weight:4,dashArray:'8,7',opacity:.9}).addTo(map);
+    map.fitBounds(routeLine.getBounds().pad(0.25));
+  }else{
+    map.setView([p.lat,p.lng],16);
+  }
+  markers[p.id].openPopup();
+  renderList();
+}
+
+// ---- User location ----
+let userMarker=null,accCircle=null,userPos=null,firstFix=true;
+const statusEl=document.getElementById('status');
+function setStatus(m,c){ statusEl.textContent=m; statusEl.className=c||''; }
+function placeUser(lat,lng,acc){
+  userPos={lat,lng};
+  if(!userMarker){
+    userMarker=L.circleMarker([lat,lng],{radius:8,color:'#fff',weight:3,fillColor:'#1675ff',fillOpacity:1}).addTo(map);
+    accCircle=L.circle([lat,lng],{radius:acc||30,color:'#1675ff',weight:1,fillColor:'#1675ff',fillOpacity:.10}).addTo(map);
+  }else{ userMarker.setLatLng([lat,lng]); accCircle.setLatLng([lat,lng]).setRadius(acc||30); }
+  if(firstFix){ map.setView([lat,lng],15); firstFix=false; }
+  if(activeId){ const p=POIS.find(x=>x.id===activeId); if(p && !p.loop) startTo(p); }
+  renderList();
+}
+function onPos(pos){ placeUser(pos.coords.latitude,pos.coords.longitude,pos.coords.accuracy); setStatus('🟢 Location active — distances & routes update as you move.','ok'); }
+function onErr(e){
+  let m='⚠️ Couldn’t get GPS. Tap “✋ Set my spot” and tap the map where you are.';
+  if(e&&e.code===1) m='⚠️ Location blocked by Safari (common with saved files). Tap “✋ Set my spot” and tap the map where you are.';
+  setStatus(m,'err');
+}
+function enableGPS(){
+  if(!('geolocation' in navigator)){ setStatus('⚠️ No GPS support — use “✋ Set my spot”.','err'); return; }
+  setStatus('Requesting location…');
+  navigator.geolocation.getCurrentPosition(onPos,onErr,{enableHighAccuracy:true,timeout:10000});
+  navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:5000,timeout:15000});
+}
+document.getElementById('enableLoc').addEventListener('click',enableGPS);
+
+// ---- Manual location (tap map) ----
+let manualArm=false;
+const manualBtn=document.getElementById('manualLoc');
+manualBtn.addEventListener('click',()=>{
+  manualArm=!manualArm; manualBtn.classList.toggle('armed',manualArm);
+  setStatus(manualArm?'✋ Tap the map where you are standing.':'Manual mode off.');
+});
+map.on('click',e=>{
+  if(!manualArm) return;
+  placeUser(e.latlng.lat,e.latlng.lng,20);
+  manualArm=false; manualBtn.classList.remove('armed');
+  setStatus('📍 Spot set manually — distances & routes now work. Move it anytime with “✋ Set my spot”.','ok');
+});
+
+// ---- Distance / bearing ----
+function haversine(a,b,c,d){const R=3958.8,r=x=>x*Math.PI/180;const dy=r(c-a),dx=r(d-b);const t=Math.sin(dy/2)**2+Math.cos(r(a))*Math.cos(r(c))*Math.sin(dx/2)**2;return R*2*Math.atan2(Math.sqrt(t),Math.sqrt(1-t));}
+function bearing(a,b,c,d){const r=x=>x*Math.PI/180,g=x=>x*180/Math.PI;const y=Math.sin(r(d-b))*Math.cos(r(c));const x=Math.cos(r(a))*Math.sin(r(c))-Math.sin(r(a))*Math.cos(r(c))*Math.cos(r(d-b));const br=(g(Math.atan2(y,x))+360)%360;return ['N','NE','E','SE','S','SW','W','NW'][Math.round(br/45)%8];}
+function fmtDist(mi){return mi<0.19?Math.round(mi*5280)+' ft':mi.toFixed(mi<10?1:0)+' mi';}
+
+// ---- List ----
+let activeDay='all';
+const listEl=document.getElementById('list');
+function renderList(){
+  let items=POIS.filter(p=>activeDay==='all'||p.day.includes(parseInt(activeDay)));
+  if(userPos){ items.forEach(p=>p._d=haversine(userPos.lat,userPos.lng,p.lat,p.lng)); items=items.slice().sort((a,b)=>a._d-b._d); }
+  listEl.innerHTML=items.map(p=>{
+    let dist=userPos?`<div class="dist">${fmtDist(p._d)}<small>${bearing(userPos.lat,userPos.lng,p.lat,p.lng)} of you</small></div>`:'';
+    const gmaps=`https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}&travelmode=walking`;
+    const startLabel=p.loop?'Start loop ▶':'Start ▶';
+    return `<div class="card ${activeId===p.id?'active':''}">
+      <div class="top"><div>
+        <div class="meta">${p.cat}</div>
+        <h3><span class="dot" style="background:${p.color}"></span>${p.name}</h3>
+      </div>${dist}</div>
+      <p>${p.desc}</p>
+      <div class="btns">
+        <button class="btn start" data-start="${p.id}">${startLabel}</button>
+        <a class="btn go" href="${gmaps}" target="_blank" rel="noopener">Directions ↗</a>
+      </div>
+    </div>`;
+  }).join('');
+  listEl.querySelectorAll('[data-start]').forEach(b=>b.addEventListener('click',()=>{
+    const p=POIS.find(x=>x.id===b.dataset.start); startTo(p);
+    document.getElementById('map').scrollIntoView({behavior:'smooth',block:'start'});
+  }));
+}
+
+// ---- Tabs & recenter ----
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active'); activeDay=t.dataset.day; renderList();
+}));
+document.getElementById('locBtn').addEventListener('click',()=>{ if(userPos) map.setView([userPos.lat,userPos.lng],16); else enableGPS(); });
+
+renderList();
+enableGPS(); // try once on load; Safari may ignore until button tap
+</script>
+</body>
+</html>
