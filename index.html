@@ -54,6 +54,7 @@
   <div id="status">Tap “📍 Enable location” below. If Safari won’t allow it (common when opening a saved file), tap “✋ Set my spot” and tap the map where you are.</div>
   <div id="toolbar">
     <button id="enableLoc">📍 Enable location</button>
+    <button id="followBtn">🧭 Follow</button>
     <button id="manualLoc">✋ Set my spot</button>
     <button id="loopToggle">🚲 Bike loop</button>
   </div>
@@ -159,19 +160,30 @@ function startTo(p){
 
 // ---- User location ----
 let userMarker=null,accCircle=null,userPos=null,firstFix=true;
+let followMode=true, trail=[], trailLine=null;
 const statusEl=document.getElementById('status');
 function setStatus(m,c){ statusEl.textContent=m; statusEl.className=c||''; }
-function placeUser(lat,lng,acc){
+function placeUser(lat,lng,acc,isGps){
   userPos={lat,lng};
   if(!userMarker){
     userMarker=L.circleMarker([lat,lng],{radius:8,color:'#fff',weight:3,fillColor:'#1675ff',fillOpacity:1}).addTo(map);
-    accCircle=L.circle([lat,lng],{radius:acc||30,color:'#1675ff',weight:1,fillColor:'#1675ff',fillOpacity:.10}).addTo(map);
+    accCircle=L.circle([lat,lng],{radius:acc||30,color:'#1675ff',weight:1,fillColor:'#1675ff',fillOpacity:.08}).addTo(map);
   }else{ userMarker.setLatLng([lat,lng]); accCircle.setLatLng([lat,lng]).setRadius(acc||30); }
-  if(firstFix){ map.setView([lat,lng],15); firstFix=false; }
+  // breadcrumb trail (GPS movement only)
+  if(isGps){
+    const last=trail[trail.length-1];
+    if(!last || haversine(last[0],last[1],lat,lng)>0.005){ // ~26 ft min step
+      trail.push([lat,lng]);
+      if(!trailLine){ trailLine=L.polyline(trail,{color:'#1675ff',weight:4,opacity:.6}).addTo(map); }
+      else trailLine.setLatLngs(trail);
+    }
+  }
+  if(firstFix){ map.setView([lat,lng],16); firstFix=false; }
+  else if(followMode && isGps){ map.panTo([lat,lng],{animate:true}); }
   if(activeId){ const p=POIS.find(x=>x.id===activeId); if(p && !p.loop) startTo(p); }
   renderList();
 }
-function onPos(pos){ placeUser(pos.coords.latitude,pos.coords.longitude,pos.coords.accuracy); setStatus('🟢 Location active — distances & routes update as you move.','ok'); }
+function onPos(pos){ placeUser(pos.coords.latitude,pos.coords.longitude,pos.coords.accuracy,true); setStatus('🟢 Live — following you. Trail shows where you’ve been. Tap “Directions ↗” on a stop for turn-by-turn.','ok'); }
 function onErr(e){
   let m='⚠️ Couldn’t get GPS. Tap “✋ Set my spot” and tap the map where you are.';
   if(e&&e.code===1) m='⚠️ Location blocked by Safari (common with saved files). Tap “✋ Set my spot” and tap the map where you are.';
@@ -194,10 +206,17 @@ manualBtn.addEventListener('click',()=>{
 });
 map.on('click',e=>{
   if(!manualArm) return;
-  placeUser(e.latlng.lat,e.latlng.lng,20);
+  placeUser(e.latlng.lat,e.latlng.lng,20,false);
   manualArm=false; manualBtn.classList.remove('armed');
   setStatus('📍 Spot set manually — distances & routes now work. Move it anytime with “✋ Set my spot”.','ok');
 });
+// follow toggle
+const followBtn=document.getElementById('followBtn');
+function setFollow(on){ followMode=on; followBtn.classList.toggle('loopon',on); if(on&&userPos) map.panTo([userPos.lat,userPos.lng]); }
+followBtn.addEventListener('click',()=>setFollow(!followMode));
+setFollow(true);
+// turn follow off if user drags the map manually
+map.on('dragstart',()=>{ if(followMode) setFollow(false); });
 
 // ---- Distance / bearing ----
 function haversine(a,b,c,d){const R=3958.8,r=x=>x*Math.PI/180;const dy=r(c-a),dx=r(d-b);const t=Math.sin(dy/2)**2+Math.cos(r(a))*Math.cos(r(c))*Math.sin(dx/2)**2;return R*2*Math.atan2(Math.sqrt(t),Math.sqrt(1-t));}
